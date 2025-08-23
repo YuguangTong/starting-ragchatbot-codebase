@@ -5,7 +5,7 @@ const API_URL = '/api';
 let currentSessionId = null;
 
 // DOM elements
-let chatMessages, chatInput, sendButton, totalCourses, courseTitles;
+let chatMessages, chatInput, sendButton, totalCourses, courseTitles, newChatButton;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     sendButton = document.getElementById('sendButton');
     totalCourses = document.getElementById('totalCourses');
     courseTitles = document.getElementById('courseTitles');
+    newChatButton = document.getElementById('newChatButton');
     
     setupEventListeners();
     createNewSession();
@@ -29,6 +30,8 @@ function setupEventListeners() {
         if (e.key === 'Enter') sendMessage();
     });
     
+    // New chat button
+    newChatButton.addEventListener('click', startNewChat);
     
     // Suggested questions
     document.querySelectorAll('.suggested-item').forEach(button => {
@@ -122,10 +125,28 @@ function addMessage(content, type, sources = null, isWelcome = false) {
     let html = `<div class="message-content">${displayContent}</div>`;
     
     if (sources && sources.length > 0) {
+        // Format sources - handle both string format and object format with links
+        const formattedSources = sources.map(source => {
+            if (typeof source === 'string') {
+                // Legacy format - just return the string
+                return source;
+            } else if (source && source.text) {
+                // New format with potential link
+                if (source.link) {
+                    return `<a href="${source.link}" target="_blank" rel="noopener noreferrer" class="source-link">${source.text}</a>`;
+                } else {
+                    return source.text;
+                }
+            }
+            return source; // Fallback
+        });
+        
         html += `
             <details class="sources-collapsible">
                 <summary class="sources-header">Sources</summary>
-                <div class="sources-content">${sources.join(', ')}</div>
+                <ul class="sources-list">
+                    ${formattedSources.map(source => `<li>${source}</li>`).join('')}
+                </ul>
             </details>
         `;
     }
@@ -150,6 +171,38 @@ async function createNewSession() {
     currentSessionId = null;
     chatMessages.innerHTML = '';
     addMessage('Welcome to the Course Materials Assistant! I can help you with questions about courses, lessons and specific content. What would you like to know?', 'assistant', null, true);
+}
+
+async function startNewChat() {
+    try {
+        // Call backend to create new session  
+        const response = await fetch(`${API_URL}/new-session`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+        
+        if (!response.ok) throw new Error('Failed to create new session');
+        
+        const data = await response.json();
+        
+        // Reset frontend state
+        currentSessionId = data.session_id;
+        chatMessages.innerHTML = '';
+        
+        // Add welcome message
+        addMessage('Welcome to the Course Materials Assistant! I can help you with questions about courses, lessons and specific content. What would you like to know?', 'assistant', null, true);
+        
+        // Clear input and focus
+        chatInput.value = '';
+        chatInput.focus();
+        
+    } catch (error) {
+        console.error('Error starting new chat:', error);
+        // Fallback to client-side reset
+        createNewSession();
+    }
 }
 
 // Load course statistics

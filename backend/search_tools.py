@@ -100,11 +100,19 @@ class CourseSearchTool(Tool):
                 header += f" - Lesson {lesson_num}"
             header += "]"
             
-            # Track source for the UI
-            source = course_title
+            # Track source for the UI with link information
+            source_obj = {
+                "text": course_title,
+                "link": None
+            }
             if lesson_num is not None:
-                source += f" - Lesson {lesson_num}"
-            sources.append(source)
+                source_obj["text"] += f" - Lesson {lesson_num}"
+                # Get lesson link from vector store
+                lesson_link = self.store.get_lesson_link(course_title, lesson_num)
+                if lesson_link:
+                    source_obj["link"] = lesson_link
+            
+            sources.append(source_obj)
             
             formatted.append(f"{header}\n{doc}")
         
