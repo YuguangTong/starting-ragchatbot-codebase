@@ -1,8 +1,9 @@
-import anthropic
 from typing import List, Optional, Dict, Any
+from llm_providers.provider_factory import ProviderFactory
+from llm_providers.base_provider import LLMProvider, ToolResult
 
 class AIGenerator:
-    """Handles interactions with Anthropic's Claude API for generating responses"""
+    """Handles interactions with multiple LLM providers for generating responses"""
     
     # Static system prompt to avoid rebuilding on each call
     SYSTEM_PROMPT = """ You are an AI assistant specialized in course materials and educational content with access to a comprehensive search tool for course information.
@@ -29,16 +30,30 @@ All responses must be:
 Provide only the direct answer to what was asked.
 """
     
-    def __init__(self, api_key: str, model: str):
-        self.client = anthropic.Anthropic(api_key=api_key)
-        self.model = model
+    def __init__(self, 
+                 provider_type: str = "claude",
+                 anthropic_api_key: str = "",
+                 anthropic_model: str = "claude-sonnet-4-20250514",
+                 google_api_key: str = "",
+                 gemini_model: str = "gemini-1.5-flash"):
+        """
+        Initialize AIGenerator with specified provider.
         
-        # Pre-build base API parameters
-        self.base_params = {
-            "model": self.model,
-            "temperature": 0,
-            "max_tokens": 800
-        }
+        Args:
+            provider_type: Type of LLM provider ("claude", "gemini", "random")
+            anthropic_api_key: Anthropic API key
+            anthropic_model: Claude model to use
+            google_api_key: Google API key  
+            gemini_model: Gemini model to use
+        """
+        self.provider: LLMProvider = ProviderFactory.create_provider(
+            provider_type=provider_type,
+            anthropic_api_key=anthropic_api_key,
+            anthropic_model=anthropic_model,
+            google_api_key=google_api_key,
+            gemini_model=gemini_model
+        )
+        self.provider_type = provider_type
     
     def generate_response(self, query: str,
                          conversation_history: Optional[str] = None,
@@ -57,79 +72,50 @@ Provide only the direct answer to what was asked.
             Generated response as string
         """
         
-        # Build system content efficiently - avoid string ops when possible
-        system_content = (
-            f"{self.SYSTEM_PROMPT}\n\nPrevious conversation:\n{conversation_history}"
-            if conversation_history 
-            else self.SYSTEM_PROMPT
+        # Get response from provider
+        response = self.provider.generate_response(
+            query=query,
+            system_prompt=self.SYSTEM_PROMPT,
+            conversation_history=conversation_history,
+            tools=tools
         )
-        
-        # Prepare API call parameters efficiently
-        api_params = {
-            **self.base_params,
-            "messages": [{"role": "user", "content": query}],
-            "system": system_content
-        }
-        
-        # Add tools if available
-        if tools:
-            api_params["tools"] = tools
-            api_params["tool_choice"] = {"type": "auto"}
-        
-        # Get response from Claude
-        response = self.client.messages.create(**api_params)
         
         # Handle tool execution if needed
         if response.stop_reason == "tool_use" and tool_manager:
-            return self._handle_tool_execution(response, api_params, tool_manager)
+            return self._handle_tool_execution(response, tool_manager)
         
         # Return direct response
-        return response.content[0].text
+        return response.content
     
-    def _handle_tool_execution(self, initial_response, base_params: Dict[str, Any], tool_manager):
+    def _handle_tool_execution(self, initial_response, tool_manager):
         """
         Handle execution of tool calls and get follow-up response.
         
         Args:
-            initial_response: The response containing tool use requests
-            base_params: Base API parameters
+            initial_response: The LLMResponse containing tool calls
             tool_manager: Manager to execute tools
             
         Returns:
             Final response text after tool execution
         """
-        # Start with existing messages
-        messages = base_params["messages"].copy()
-        
-        # Add AI's tool use response
-        messages.append({"role": "assistant", "content": initial_response.content})
-        
         # Execute all tool calls and collect results
         tool_results = []
-        for content_block in initial_response.content:
-            if content_block.type == "tool_use":
-                tool_result = tool_manager.execute_tool(
-                    content_block.name, 
-                    **content_block.input
-                )
-                
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": content_block.id,
-                    "content": tool_result
-                })
+        for tool_call in initial_response.tool_calls:
+            tool_result_content = tool_manager.execute_tool(
+                tool_call.name, 
+                **tool_call.parameters
+            )
+            
+            tool_results.append(ToolResult(
+                tool_call_id=tool_call.id,
+                content=tool_result_content
+            ))
         
-        # Add tool results as single message
-        if tool_results:
-            messages.append({"role": "user", "content": tool_results})
+        # Get final response from provider
+        final_response = self.provider.execute_tool_calls(
+            initial_response=initial_response,
+            tool_results=tool_results,
+            system_prompt=self.SYSTEM_PROMPT
+        )
         
-        # Prepare final API call without tools
-        final_params = {
-            **self.base_params,
-            "messages": messages,
-            "system": base_params["system"]
-        }
-        
-        # Get final response
-        final_response = self.client.messages.create(**final_params)
-        return final_response.content[0].text
+        return final_response.content
