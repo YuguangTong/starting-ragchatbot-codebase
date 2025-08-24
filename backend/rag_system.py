@@ -21,7 +21,8 @@ class RAGSystem:
             anthropic_api_key=config.ANTHROPIC_API_KEY,
             anthropic_model=config.ANTHROPIC_MODEL,
             google_api_key=config.GOOGLE_API_KEY,
-            gemini_model=config.GEMINI_MODEL
+            gemini_model=config.GEMINI_MODEL,
+            config=config
         )
         self.session_manager = SessionManager(config.MAX_HISTORY)
         

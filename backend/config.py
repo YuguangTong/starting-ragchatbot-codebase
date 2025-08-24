@@ -35,6 +35,11 @@ class Config:
     MAX_RESULTS: int = 5  # Maximum search results to return
     MAX_HISTORY: int = 2  # Number of conversation messages to remember
 
+    # ReAct (Reasoning and Acting) settings
+    ENABLE_REACT: bool = os.getenv("ENABLE_REACT", "true").lower() == "true"
+    MAX_REACT_ITERATIONS: int = int(os.getenv("MAX_REACT_ITERATIONS", "5"))
+    REACT_DEBUG: bool = os.getenv("REACT_DEBUG", "false").lower() == "true"
+
     # Database paths
     CHROMA_PATH: str = "./chroma_db"  # ChromaDB storage location
 

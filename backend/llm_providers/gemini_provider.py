@@ -42,6 +42,8 @@ class GeminiProvider(LLMProvider):
         gemini_tools = None
         if tools:
             gemini_tools = self.convert_tools_to_provider_format(tools)
+            # Store tools for ReAct follow-up calls
+            self._current_tools = gemini_tools
 
         try:
             # Generate response with or without tools
@@ -116,20 +118,39 @@ class GeminiProvider(LLMProvider):
             full_prompt += f"- {result.content}\n"
 
         full_prompt += (
-            "\nPlease provide a final response based on the tool results above."
+            "\nPlease provide a response based on the tool results above. "
+            "You can use additional tools if you need more information."
         )
 
         try:
-            response = self.client.generate_content(full_prompt)
+            # Include tools in follow-up response to enable ReAct
+            response = self.client.generate_content(
+                full_prompt, 
+                tools=getattr(self, '_current_tools', None)
+            )
 
+            # Extract content and potential new tool calls
             content = ""
+            tool_calls = []
+            
             if response.parts:
+                text_parts = []
                 for part in response.parts:
                     if hasattr(part, "text") and part.text:
-                        content += part.text
+                        text_parts.append(part.text)
+                    elif hasattr(part, "function_call") and part.function_call:
+                        tool_calls.extend(self.extract_tool_calls(response))
+                        
+                content = "".join(text_parts)
+
+            # Determine stop reason
+            stop_reason = "tool_use" if tool_calls else "end_turn"
 
             return LLMResponse(
-                content=content, stop_reason="end_turn", metadata={"model": self.model}
+                content=content, 
+                tool_calls=tool_calls,
+                stop_reason=stop_reason, 
+                metadata={"model": self.model}
             )
 
         except Exception as e:
